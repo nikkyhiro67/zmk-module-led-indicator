@@ -1,114 +1,119 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/led_strip.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/drivers/led_strip.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
-#include <zmk/keymap.h>
-#include <zmk/layers.h>
+#include <zmk/event_manager.h>
+#include <zmk/events/layer_state_changed.h>
+#include <zmk/events/battery_state_changed.h>
+#include <zmk/events/ble_active_profile_changed.h>
+#include <zmk/events/ble_connection_status_changed.h>
 
-#include "battery_monitor.h"
+LOG_MODULE_REGISTER(led_indicator, CONFIG_ZMK_LOG_LEVEL);
 
-LOG_MODULE_REGISTER(led_indicator, LOG_LEVEL_INF);
-
-/* === DeviceTreeノード取得 === */
+/* ============================================================
+ * DeviceTreeノード取得
+ * ============================================================ */
 #define LED_INDICATOR_NODE DT_INST(0, zmk_led_indicator)
-#define STRIP_NODE DT_PHANDLE(LED_INDICATOR_NODE, led_strip)
+#define LED_STRIP_NODE     DT_PHANDLE(LED_INDICATOR_NODE, led_strip)
+#define BATTERY_NODE       DT_PHANDLE_OR(LED_INDICATOR_NODE, battery, DT_INVALID_NODE)
 
-#if DT_NODE_HAS_STATUS(STRIP_NODE, okay)
-static const struct device *strip = DEVICE_DT_GET(STRIP_NODE);
+/* ============================================================
+ * デバイスハンドル
+ * ============================================================ */
+static const struct device *led_strip_dev = DEVICE_DT_GET(LED_STRIP_NODE);
+#if DT_NODE_HAS_PROP(LED_INDICATOR_NODE, battery)
+static const struct device *battery_dev = DEVICE_DT_GET(BATTERY_NODE);
 #else
-#error "LED strip device not found"
+static const struct device *battery_dev = NULL;
 #endif
 
-/* === オプションGPIO LED === */
-#if DT_NODE_HAS_PROP(LED_INDICATOR_NODE, gpio_leds)
-#define GPIO_NODE DT_PHANDLE(LED_INDICATOR_NODE, gpio_leds)
-static const struct device *gpio_dev = DEVICE_DT_GET(GPIO_NODE);
-#define LED_EN_PIN 9
-#define LED_PIN 10
-#endif
+/* WS2812/SK6812等に送る単一ピクセル */
+static struct led_rgb led_color = {0, 0, 0};
 
-static struct led_rgb color[1];
+/* 現在状態キャッシュ */
+static uint8_t active_layer = 0;
+static bool ble_connected = false;
+static uint8_t battery_level = 100;
 
-static void set_led_color(uint8_t r, uint8_t g, uint8_t b)
-{
-    color[0].r = r;
-    color[0].g = g;
-    color[0].b = b;
-    led_strip_update_rgb(strip, color, 1);
-}
+/* ============================================================
+ * ヘルパー: LED設定関数
+ * ============================================================ */
+static void led_indicator_set_color(uint8_t r, uint8_t g, uint8_t b) {
+    led_color.r = r;
+    led_color.g = g;
+    led_color.b = b;
 
-/* === 状態更新関数 === */
-void led_indicator_update(void)
-{
-    int mv = battery_monitor_get_voltage_mv();
-
-    if (mv < 0) {
-        LOG_WRN("Battery voltage unavailable");
+    if (!device_is_ready(led_strip_dev)) {
+        LOG_ERR("LED strip device not ready");
         return;
     }
 
-    /* --- バッテリー状態 --- */
-    if (mv < 3000) {
-        set_led_color(255, 0, 0); // 赤
-        k_sleep(K_MSEC(500));
-        set_led_color(0, 0, 0);
-        return;
-    } else if (mv < 3300) {
-        set_led_color(255, 165, 0); // オレンジ
-    } else {
-        set_led_color(0, 255, 0); // 緑
+    int ret = led_strip_update_rgb(led_strip_dev, &led_color, 1);
+    if (ret) {
+        LOG_ERR("Failed to update LED strip: %d", ret);
     }
-
-    /* --- Bluetooth状態 --- */
-    bool bt_ready = bt_is_ready();
-    int conn_count = 0;
-    if (bt_ready) {
-        struct bt_conn *conns[CONFIG_BT_MAX_CONN];
-        conn_count = bt_conn_get_connections(conns, CONFIG_BT_MAX_CONN);
-    }
-
-    if (conn_count == 0) {
-        set_led_color(0, 0, 255); // 青点滅: 未接続
-        k_sleep(K_MSEC(300));
-        set_led_color(0, 0, 0);
-        k_sleep(K_MSEC(300));
-    }
-
-    /* --- レイヤー状態 --- */
-    uint8_t layer = zmk_keymap_layer_active();
-    if (layer == 1) {
-        set_led_color(0, 0, 255);
-    } else if (layer == 2) {
-        set_led_color(255, 255, 0);
-    } else if (layer == 6) {
-        set_led_color(0, 255, 0);
-    } else {
-        set_led_color(255, 255, 255);
-    }
-
-    k_sleep(K_MSEC(300));
-    set_led_color(0, 0, 0);
 }
 
-/* === 初期化 === */
-static int led_indicator_init(void)
-{
-    if (!device_is_ready(strip)) {
-        LOG_ERR("LED strip not ready");
+/* ============================================================
+ * 表示ロジック
+ * ============================================================ */
+static void led_indicator_update(void) {
+    /* Battery level: 0–100% → brightness or hue に反映 */
+    uint8_t level = battery_level;
+
+    if (ble_connected) {
+        /* BLE接続時：青系 */
+        led_indicator_set_color(0, 0, level * 255 / 100);
+    } else {
+        /* 未接続：赤系 */
+        led_indicator_set_color(level * 255 / 100, 0, 0);
+    }
+
+    /* アクティブレイヤー数値による点滅なども拡張可 */
+}
+
+/* ============================================================
+ * イベントリスナ
+ * ============================================================ */
+static int led_indicator_listener(const struct zmk_event_header *eh) {
+    if (is_zmk_layer_state_changed(eh)) {
+        const struct zmk_layer_state_changed *ev = cast_zmk_layer_state_changed(eh);
+        active_layer = ev->state;
+        LOG_DBG("Layer changed: %d", active_layer);
+        led_indicator_update();
+    } else if (is_zmk_ble_connection_status_changed(eh)) {
+        const struct zmk_ble_connection_status_changed *ev = cast_zmk_ble_connection_status_changed(eh);
+        ble_connected = ev->connected;
+        LOG_DBG("BLE %s", ble_connected ? "connected" : "disconnected");
+        led_indicator_update();
+    } else if (is_zmk_battery_state_changed(eh)) {
+        const struct zmk_battery_state_changed *ev = cast_zmk_battery_state_changed(eh);
+        battery_level = ev->state_of_charge;
+        LOG_DBG("Battery: %u%%", battery_level);
+        led_indicator_update();
+    }
+    return 0;
+}
+
+ZMK_LISTENER(led_indicator, led_indicator_listener);
+ZMK_SUBSCRIPTION(led_indicator, zmk_layer_state_changed);
+ZMK_SUBSCRIPTION(led_indicator, zmk_ble_connection_status_changed);
+ZMK_SUBSCRIPTION(led_indicator, zmk_battery_state_changed);
+
+/* ============================================================
+ * 初期化処理
+ * ============================================================ */
+static int led_indicator_init(void) {
+    if (!device_is_ready(led_strip_dev)) {
+        LOG_ERR("LED strip device not ready");
         return -ENODEV;
     }
 
-#if DT_NODE_HAS_PROP(LED_INDICATOR_NODE, gpio_leds)
-    if (device_is_ready(gpio_dev)) {
-        gpio_pin_configure(gpio_dev, LED_EN_PIN, GPIO_OUTPUT);
-        gpio_pin_configure(gpio_dev, LED_PIN, GPIO_OUTPUT);
-        gpio_pin_set(gpio_dev, LED_EN_PIN, 1);
-    }
-#endif
-
     LOG_INF("LED Indicator initialized");
+    led_indicator_update();
     return 0;
 }
 

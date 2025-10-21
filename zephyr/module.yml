@@ -1,4 +1,6 @@
-name: zmk-feature-non-lipo-battery-management
+name: zmk-module-led-indicator
 build:
   cmake: .
   kconfig: Kconfig
+  settings:
+    dts_root: .

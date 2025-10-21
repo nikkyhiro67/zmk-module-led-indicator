@@ -1,0 +1,17 @@
+description: ZMK LED Indicator Module
+
+compatible: "zmk,led-indicator"
+
+include: base.yaml
+
+properties:
+  led-strip:
+    type: phandle
+    required: true
+    description: |
+      Reference to the LED strip device (e.g., SK6812MINI-E, WS2812).
+  gpio-leds:
+    type: phandle
+    required: false
+    description: |
+      Optional GPIO-driven LED device for auxiliary indicator.

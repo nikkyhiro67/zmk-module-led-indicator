@@ -1,4 +1,4 @@
-description: ZMK LED Indicator device
+description: ZMK LED Indicator module
 
 compatible: "zmk,led-indicator"
 
@@ -9,23 +9,16 @@ properties:
     type: phandle
     required: true
     description: |
-      Reference to the LED strip device (e.g. WS2812, SK6812).
-      Used for RGB indication of battery, BLE, and layer status.
+      LED strip device (WS2812, SK6812, etc.)
 
   battery:
     type: phandle
     required: false
     description: |
-      Reference to the zmk,battery-monitor node.
-      Used to obtain battery percentage or charging state.
+      Optional battery monitor device node for integration.
 
   power-gpios:
     type: phandle-array
     required: false
     description: |
-      Optional GPIO LEDs for additional status indication.
-
-  status:
-    type: string
-    required: false
-    description: Node operational status.
+      Optional GPIOs for additional indicator LEDs or power control.

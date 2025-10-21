@@ -3,5 +3,8 @@ menu "LED Indicator Module"
 config ZMK_LED_INDICATOR
     bool "Enable LED Indicator Module"
     default y
+    help
+      Enables the LED indicator feature for displaying battery,
+      BLE connection, and layer status via a single RGB LED.
 
 endmenu

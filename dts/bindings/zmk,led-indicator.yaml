@@ -9,16 +9,28 @@ properties:
     type: phandle
     required: true
     description: |
-      LED strip device (WS2812, SK6812, etc.)
+      Reference to an LED strip device (e.g. WS2812, SK6812MINI-E).
+      This LED will be used to indicate battery level, BLE state, and active layer.
 
   battery:
     type: phandle
     required: false
     description: |
-      Optional battery monitor device node for integration.
+      Optional reference to a zmk,battery-monitor node.
+      Used to display battery level on the LED indicator if available.
 
   power-gpios:
     type: phandle-array
     required: false
     description: |
       Optional GPIOs for additional indicator LEDs or power control.
+      If defined, these GPIOs may be toggled to signal different states.
+
+  status:
+    type: string
+    required: false
+    description: |
+      Standard Zephyr device status property.
+      Typically "okay" to enable the node.
+
+additionalProperties: false

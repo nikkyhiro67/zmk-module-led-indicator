@@ -1,5 +1,3 @@
-# CMakeLists.txt (module root)
-
 if (CONFIG_ZMK_LED_INDICATOR)
     zephyr_library()
     zephyr_library_sources(src/led_indicator.c)

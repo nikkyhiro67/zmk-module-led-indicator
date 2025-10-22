@@ -1,10 +1,21 @@
-menu "LED Indicator Module"
-
-config ZMK_LED_INDICATOR
-    bool "Enable LED Indicator Module"
-    default y
+menuconfig ZMK_LED_INDICATOR
+    bool "ZMK LED Indicator"
+    depends on ZMK
     help
-      Enables the LED indicator feature for displaying battery,
-      BLE connection, and layer status via a single RGB LED.
+      Enable LED indicator module for status display (battery, layer, etc.)
 
-endmenu
+if ZMK_LED_INDICATOR
+
+config ZMK_LED_INDICATOR_THREAD_STACK_SIZE
+    int "LED Indicator thread stack size"
+    default 1024
+    help
+      Stack size for LED indicator update thread.
+
+config ZMK_LED_INDICATOR_UPDATE_INTERVAL
+    int "LED Indicator update interval (ms)"
+    default 2000
+    help
+      LED indicator refresh interval.
+
+endif

@@ -32,5 +32,3 @@ properties:
     description: |
       Standard Zephyr device status property.
       Typically "okay" to enable the node.
-
-additionalProperties: false

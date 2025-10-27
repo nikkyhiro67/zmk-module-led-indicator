@@ -44,17 +44,20 @@ static struct led_rgb get_battery_color(uint8_t level, bool connected)
     struct led_rgb color = {0};
 
     if (level >= 80) {
+        // 高残量：緑（接続中は少し青寄り）
         color.r = 0x00;
         color.g = 0xFF;
-        color.b = connected ? 0x40 : 0x00; // 緑（BLE接続中なら少し青み）
+        color.b = connected ? 0x40 : 0x00;
     } else if (level >= 50) {
+        // 中残量：オレンジ（接続中はわずかに青）
         color.r = 0xFF;
         color.g = 0xA5;
-        color.b = connected ? 0x20 : 0x00; // オレンジ
+        color.b = connected ? 0x20 : 0x00;
     } else {
+        // 低残量：赤（接続中はわずかに青）
         color.r = 0xFF;
         color.g = 0x00;
-        color.b = connected ? 0x20 : 0x00; // 赤
+        color.b = connected ? 0x20 : 0x00;
     }
 
     return color;
@@ -80,11 +83,14 @@ static void led_indicator_set_color(uint8_t r, uint8_t g, uint8_t b)
     }
 }
 
+/* ==========================================================
+ *  状態に応じたLED制御
+ * ========================================================== */
 static void led_indicator_update(void)
 {
     struct led_rgb color = get_battery_color(battery_level, ble_connected);
 
-    /* レイヤーに応じた上書きも可能（例：Fn層は青） */
+    /* レイヤーに応じた上書き（例：Fn層＝青） */
     if (active_layer == 1) {
         color.r = 0x00;
         color.g = 0x00;
@@ -104,11 +110,13 @@ static int led_indicator_listener(const struct zmk_event_header *eh)
         active_layer = ev->state;
         LOG_DBG("Layer changed: %d", active_layer);
         led_indicator_update();
+
     } else if (is_zmk_ble_connection_status_changed(eh)) {
         const struct zmk_ble_connection_status_changed *ev = cast_zmk_ble_connection_status_changed(eh);
         ble_connected = ev->connected;
         LOG_INF("BLE connection status: %s", ble_connected ? "connected" : "disconnected");
         led_indicator_update();
+
     } else if (is_zmk_battery_state_changed(eh)) {
         const struct zmk_battery_state_changed *ev = cast_zmk_battery_state_changed(eh);
         battery_level = ev->state_of_charge;
@@ -137,7 +145,7 @@ int led_indicator_init(void)
         return -ENODEV;
     }
 
-    LOG_INF("LED Indicator initialized (BLE, Battery, Layer linked)");
+    LOG_INF("LED Indicator initialized (linked to BLE, Layer, and Battery state)");
     led_indicator_update();
     return 0;
 }
